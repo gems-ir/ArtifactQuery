@@ -1,0 +1,20 @@
+{
+    "magics" : [
+        {
+            "name": "evtx",
+            "signature": "45 6c 66 46 69 6c 65 00"
+        },
+        {
+            "name": "lnk",
+            "signature": "4c 00 00 00"
+        },
+        {
+            "name": "prefetch",
+            "signature": "4d 41 4d 04"
+        },
+        {
+            "name": "prefetch",
+            "signature": "?? ?? ?? ?? 53 43 43 41"
+        }
+    ]
+}
