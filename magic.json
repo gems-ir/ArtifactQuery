@@ -15,6 +15,22 @@
         {
             "name": "prefetch",
             "signature": "?? ?? ?? ?? 53 43 43 41"
+        },
+        {
+            "name": "mft",
+            "signature": "46 49 4C 45"
+        },
+        {
+            "name": "mft",
+            "signature": "42 41 41 44"
+        },
+        {
+            "name": "registry",
+            "signature": "72 65 67 66"
+        },
+        {
+            "name": "notepad",
+            "signature": "4E 50"
         }
     ]
 }
