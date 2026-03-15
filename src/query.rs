@@ -1,21 +1,30 @@
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use anyhow::Result;
-use tokio::fs::File;
+use std::fs::File;
+use std::io::{Read,Seek};
 use serde::Deserialize;
 use regex::Regex;
 
-pub struct ArtifactQuery {}
+pub struct ArtifactQuery {
+	magic: Vec<artifact>,
+}
 
 impl ArtifactQuery {
-   	pub async fn from_path(path: &str) -> Result<Option<String>>{
-		let mut file = File::open(path).await?;
-		Self::from_reader(&mut file).await
+	pub fn new() -> Result<Self>{
+		let magic = magic_list()?;
+		Ok(Self{
+			magic
+		})
 	}
 
-	pub async fn from_reader<R: AsyncReadExt + AsyncSeekExt + Unpin>(reader: &mut R) -> Result<Option<String>>{
-		let magic_ls = magic_list().await?;
+   	pub fn from_path(&self, path: &str) -> Result<Option<String>>{
+		let mut file = File::open(path)?;
+		self.from_reader(&mut file)
+	}
+
+	pub fn from_reader<R: Read + Seek>(&self, reader: &mut R) -> Result<Option<String>>{
+		let magic_ls = &self.magic;
 		let mut data = vec![0;32];
-		let _ = reader.read_exact(&mut data).await?;
+		let _ = reader.read_exact(&mut data)?;
 
 		let mut result_artifact: Option<String> = None;
 
@@ -49,10 +58,8 @@ pub struct artifact {
 	pub signature: String,
 }
 
-async fn magic_list() -> Result<Vec<artifact>> {
-	let mut magic_file = File::open("magic.json").await?;
-	let mut data = Vec::new();
-	let _ = magic_file.read_to_end(&mut data).await?;
-	let magics: Magic = serde_json::from_slice(&data)?;
-	Ok(magics.magics.clone())
+fn magic_list() -> Result<Vec<artifact>> {
+	let data = include_bytes!("../magic.json");
+    let magics: Magic = serde_json::from_slice(data)?;
+    Ok(magics.magics.clone())
 }

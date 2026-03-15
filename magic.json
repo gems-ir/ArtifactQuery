@@ -29,8 +29,12 @@
             "signature": "72 65 67 66"
         },
         {
-            "name": "notepad",
-            "signature": "4E 50"
+            "name": "notepad10",
+            "signature": "4E 50 00 00"
+        },
+        {
+            "name": "notepad11",
+            "signature": "4E 50 00 01"
         }
     ]
 }

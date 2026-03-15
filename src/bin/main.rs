@@ -12,8 +12,9 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()>{
     let args = Args::parse();
-    let parse = ArtifactQuery::from_path(&args.path).await?;
-    match parse {
+    let parse = ArtifactQuery::new().unwrap();
+    let result = parse.from_path(&args.path)?;
+    match result {
         Some(v) => println!("This file is {}.",v),
         None => println!("This file is not been recognize.")
     }
