@@ -30,7 +30,7 @@ impl ArtifactQuery {
 
 		for art in magic_ls.iter(){
 			let len_magic_sig = art.clone().signature.split(" ").collect::<Vec<&str>>().len();
-			let nospace_magic_sig = art.clone().signature.replace(" ","").replace("?","[a-f0-9]");
+			let nospace_magic_sig = art.clone().signature.replace(" ","").replace("?","[a-f0-9]").to_lowercase();
 			let format_regex = format!("^{}$",nospace_magic_sig);
 			
 			let exact_data = &data[..len_magic_sig];
