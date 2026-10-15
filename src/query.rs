@@ -1,65 +1,146 @@
-use anyhow::Result;
 use std::fs::File;
-use std::io::{Read,Seek};
-use serde::Deserialize;
-use regex::Regex;
+use std::io::{Read, Seek, SeekFrom};
 
-pub struct ArtifactQuery {
-	magic: Vec<artifact>,
+use serde::Deserialize;
+
+/// Number of bytes read at the start of a file.
+pub const HEADER_LEN: usize = 32;
+
+#[derive(Debug, thiserror::Error)]
+pub enum QueryError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("invalid magic.json: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("invalid signature {signature:?} for {name}: {reason}")]
+    Signature {
+        name: String,
+        signature: String,
+        reason: String,
+    },
 }
 
-impl ArtifactQuery {
-	pub fn new() -> Result<Self>{
-		let magic = magic_list()?;
-		Ok(Self{
-			magic
-		})
-	}
+pub type Result<T> = std::result::Result<T, QueryError>;
 
-   	pub fn from_path(&self, path: &str) -> Result<Option<String>>{
-		let mut file = File::open(path)?;
-		self.from_reader(&mut file)
-	}
+/// One entry of magic.json, compiled once: `None` is a `??` wildcard byte.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Signature {
+    pub name: String,
+    pub pattern: Vec<Option<u8>>,
+}
 
-	pub fn from_reader<R: Read + Seek>(&self, reader: &mut R) -> Result<Option<String>>{
-		let magic_ls = &self.magic;
-		let mut data = vec![0;32];
-		let _ = reader.read_exact(&mut data)?;
+impl Signature {
+    /// Parses `"4d 41 4d 04"` or `"?? ?? ?? ?? 53 43 43 41"`.
+    pub fn parse(name: &str, signature: &str) -> Result<Self> {
+        let error = |reason: &str| QueryError::Signature {
+            name: name.to_string(),
+            signature: signature.to_string(),
+            reason: reason.to_string(),
+        };
+        let pattern = signature
+            .split_whitespace()
+            .map(|byte| match byte {
+                "??" => Ok(None),
+                hex if hex.len() == 2 => u8::from_str_radix(hex, 16)
+                    .map(Some)
+                    .map_err(|_| error("bytes must be two hex digits or ??")),
+                _ => Err(error("bytes must be two hex digits or ??")),
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if pattern.is_empty() || pattern.len() > HEADER_LEN {
+            return Err(error("a signature has between 1 and 32 bytes"));
+        }
+        if pattern.iter().all(Option::is_none) {
+            return Err(error("a signature needs at least one fixed byte"));
+        }
+        Ok(Self {
+            name: name.to_string(),
+            pattern,
+        })
+    }
 
-		let mut result_artifact: Option<String> = None;
-
-		for art in magic_ls.iter(){
-			let len_magic_sig = art.clone().signature.split(" ").collect::<Vec<&str>>().len();
-			let nospace_magic_sig = art.clone().signature.replace(" ","").replace("?","[a-f0-9]").to_lowercase();
-			let format_regex = format!("^{}$",nospace_magic_sig);
-			
-			let exact_data = &data[..len_magic_sig];
-			let data_hex = hex::encode(exact_data);
-			
-			let re = Regex::new(&format_regex).unwrap();
-			if re.is_match(&data_hex) {
-				result_artifact = Some(art.clone().name);
-				return Ok(result_artifact)
-			}
-		}
-		Ok(result_artifact)
+    /// True if `header` starts with this signature.
+    pub fn matches(&self, header: &[u8]) -> bool {
+        header.len() >= self.pattern.len()
+            && self
+                .pattern
+                .iter()
+                .zip(header)
+                .all(|(expected, actual)| expected.is_none_or(|b| b == *actual))
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+pub struct ArtifactQuery {
+    signatures: Vec<Signature>,
+}
+
+impl ArtifactQuery {
+    /// Loads the embedded magic.json.
+    pub fn new() -> Result<Self> {
+        Self::from_json(include_bytes!("../magic.json"))
+    }
+
+    /// Loads another magic.json (same format).
+    pub fn from_json(json: &[u8]) -> Result<Self> {
+        let magic: Magic = serde_json::from_slice(json)?;
+        let signatures = magic
+            .magics
+            .iter()
+            .map(|m| Signature::parse(&m.name, &m.signature))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self { signatures })
+    }
+
+    /// Signatures in magic.json order (the first match wins).
+    pub fn signatures(&self) -> &[Signature] {
+        &self.signatures
+    }
+
+    /// Distinct artifact names, in magic.json order.
+    pub fn names(&self) -> Vec<&str> {
+        let mut names: Vec<&str> = Vec::new();
+        for s in &self.signatures {
+            if !names.contains(&s.name.as_str()) {
+                names.push(&s.name);
+            }
+        }
+        names
+    }
+
+    pub fn from_path(&self, path: &str) -> Result<Option<String>> {
+        let mut file = File::open(path)?;
+        self.from_reader(&mut file)
+    }
+
+    /// Reads up to 32 bytes from the current position, then restores the position.
+    /// A file shorter than a signature does not match it (no error).
+    pub fn from_reader<R: Read + Seek>(&self, reader: &mut R) -> Result<Option<String>> {
+        let start = reader.stream_position()?;
+        let mut header = Vec::with_capacity(HEADER_LEN);
+        reader
+            .by_ref()
+            .take(HEADER_LEN as u64)
+            .read_to_end(&mut header)?;
+        reader.seek(SeekFrom::Start(start))?;
+        Ok(self.from_bytes(&header).map(str::to_string))
+    }
+
+    /// Name of the first signature matching the start of `header`.
+    pub fn from_bytes(&self, header: &[u8]) -> Option<&str> {
+        self.signatures
+            .iter()
+            .find(|s| s.matches(header))
+            .map(|s| s.name.as_str())
+    }
+}
+
+#[derive(Deserialize)]
 struct Magic {
-	magics: Vec<artifact>
+    magics: Vec<MagicEntry>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
-#[allow(non_camel_case_types)]
-pub struct artifact {
-	pub name: String,
-	pub signature: String,
-}
-
-fn magic_list() -> Result<Vec<artifact>> {
-	let data = include_bytes!("../magic.json");
-    let magics: Magic = serde_json::from_slice(data)?;
-    Ok(magics.magics.clone())
+#[derive(Deserialize)]
+struct MagicEntry {
+    name: String,
+    signature: String,
 }
