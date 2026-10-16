@@ -1,13 +1,24 @@
 [package]
 name = "artifact_query"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+rust-version = "1.82"
+description = "Identify forensic artifact types from their first bytes (magic.json)."
+license = "GPL-3.0"
+
+[features]
+default = ["cli"]
+# Command line tool. Libraries can use `default-features = false` to avoid clap.
+cli = ["dep:clap", "dep:anyhow"]
 
 [dependencies]
-anyhow = "1.0.98"
-clap = { version = "4.5.40", features = ["derive"] }
-hex = "0.4.3"
-regex = "1.11.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
-tokio = { version = "1.45.1", features = ["full"] }
+thiserror = "2"
+anyhow = { version = "1.0.98", optional = true }
+clap = { version = "4.5.40", features = ["derive"], optional = true }
+
+[[bin]]
+name = "main"
+path = "src/bin/main.rs"
+required-features = ["cli"]
